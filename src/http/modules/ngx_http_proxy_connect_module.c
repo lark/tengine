@@ -1,5 +1,7 @@
 /*
- * Copyright (C) 2010-2013 Alibaba Group Holding Limited
+ * Copyright (C) 2010-2014 Alibaba Group Holding Limited
+ *
+ *   Peng Qi a.k.a "Jing long" <jinglong.pq@taobao.com>
  */
 
 
@@ -128,7 +130,7 @@ static ngx_command_t  ngx_http_proxy_connect_commands[] = {
 
 
 static ngx_http_module_t  ngx_http_proxy_connect_module_ctx = {
-    NULL,   /* preconfiguration */
+    NULL,                                   /* preconfiguration */
     NULL,                                   /* postconfiguration */
 
     NULL,                                   /* create main configuration */
