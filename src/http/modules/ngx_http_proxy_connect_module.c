@@ -826,13 +826,14 @@ ngx_http_proxy_connect_process_connect(ngx_http_request_t *r,
 static void
 ngx_http_proxy_connect_resolve_handler(ngx_resolver_ctx_t *ctx)
 {
-    u_char                                      *p;
-    ngx_int_t                                    i, len;
-    ngx_connection_t                            *c;
-    struct sockaddr_in                          *sin;
-    ngx_http_request_t                          *r;
-    ngx_http_upstream_resolved_t                *ur;
-    ngx_http_proxy_connect_upstream_t           *u;
+    u_char                              *p;
+    ngx_int_t                            i, len;
+    ngx_connection_t                    *c;
+    ngx_http_request_t                  *r;
+    ngx_http_upstream_resolved_t        *ur;
+    ngx_http_proxy_connect_upstream_t   *u;
+    socklen_t                            socklen;
+    struct sockaddr                     *sockaddr;
 
     u = ctx->data;
     r = u->request;
@@ -857,16 +858,18 @@ ngx_http_proxy_connect_resolve_handler(ngx_resolver_ctx_t *ctx)
 
 #if (NGX_DEBUG)
     {
-    in_addr_t   addr;
+    u_char      text[NGX_SOCKADDR_STRLEN];
+    ngx_str_t   addr;
     ngx_uint_t  i;
 
-    for (i = 0; i < ctx->naddrs; i++) {
-        addr = ntohl(ur->addrs[i]);
+    addr.data = text;
 
-        ngx_log_debug4(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                       "name was resolved to %ud.%ud.%ud.%ud",
-                       (addr >> 24) & 0xff, (addr >> 16) & 0xff,
-                       (addr >> 8) & 0xff, addr & 0xff);
+    for (i = 0; i < ctx->naddrs; i++) {
+        addr.len = ngx_sock_ntop(ur->addrs[i].sockaddr, ur->addrs[i].socklen,
+                                 text, NGX_SOCKADDR_STRLEN, 0);
+
+        ngx_log_debug1(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "name was resolved to %V", &addr);
     }
     }
 #endif
@@ -881,33 +884,41 @@ ngx_http_proxy_connect_resolve_handler(ngx_resolver_ctx_t *ctx)
 
     if (ur->naddrs == 1) {
         i = 0;
-
     } else {
         i = ngx_random() % ur->naddrs;
     }
 
-    len = NGX_INET_ADDRSTRLEN + sizeof(":65536") - 1;
+    socklen = ur->addrs[i].socklen;
 
-    p = ngx_pnalloc(r->pool, len + sizeof(struct sockaddr_in));
-    if (p == NULL) {
+    sockaddr = ngx_palloc(r->pool, socklen);
+    if (sockaddr == NULL) {
         ngx_http_proxy_connect_finalize_request(r, u,
                                                 NGX_HTTP_INTERNAL_SERVER_ERROR);
-
         return;
     }
 
-    sin = (struct sockaddr_in *) &p[len];
-    ngx_memzero(sin, sizeof(struct sockaddr_in));
+    ngx_memcpy(sockaddr, ur->addrs[i].sockaddr, socklen);
 
-    len = ngx_inet_ntop(AF_INET, &ur->addrs[i], p, NGX_INET_ADDRSTRLEN);
-    len = ngx_sprintf(&p[len], ":%d", ur->port) - p;
+    switch (sockaddr->sa_family) {
+#if (NGX_HAVE_INET6)
+    case AF_INET6:
+        ((struct sockaddr_in6 *) sockaddr)->sin6_port = htons(ur->port);
+        break;
+#endif
+    default: /* AF_INET */
+        ((struct sockaddr_in *) sockaddr)->sin_port = htons(ur->port);
+    }
 
-    sin->sin_family = AF_INET;
-    sin->sin_port = htons(ur->port);
-    sin->sin_addr.s_addr = ur->addrs[i];
+    p = ngx_pnalloc(r->pool, NGX_SOCKADDR_STRLEN);
+    if (p == NULL) {
+        ngx_http_proxy_connect_finalize_request(r, u,
+                                                NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
 
-    ur->sockaddr = (struct sockaddr *) sin;
-    ur->socklen = sizeof(struct sockaddr_in);
+    len = ngx_sock_ntop(sockaddr, socklen, p, NGX_SOCKADDR_STRLEN, 1);
+    ur->sockaddr = sockaddr;
+    ur->socklen = socklen;
 
     ur->host.data = p;
     ur->host.len = len;
@@ -1215,7 +1226,6 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
     }
 
     rctx->name = r->connect_host;
-    rctx->type = NGX_RESOLVE_A;
     rctx->handler = ngx_http_proxy_connect_resolve_handler;
     rctx->data = u;
     rctx->timeout = clcf->resolver_timeout;
