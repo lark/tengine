@@ -582,13 +582,11 @@ ngx_http_proxy_connect_read_upstream(ngx_http_request_t *r,
 {
     ngx_connection_t                    *c;
     ngx_http_proxy_connect_ctx_t        *ctx;
-    ngx_http_proxy_connect_loc_conf_t   *plcf;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "proxy_connect upstream read handler");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_proxy_connect_module);
-    plcf = ngx_http_get_module_loc_conf(r, ngx_http_proxy_connect_module);
 
     c = u->peer.connection;
 

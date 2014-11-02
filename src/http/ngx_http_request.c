@@ -1056,7 +1056,6 @@ ngx_http_process_request_line(ngx_event_t *rev)
     ngx_str_t            host;
     ngx_connection_t    *c;
     ngx_http_request_t  *r;
-    ngx_http_core_srv_conf_t  *cscf;
 
     c = rev->data;
     r = c->data;
@@ -1125,11 +1124,11 @@ ngx_http_process_request_line(ngx_event_t *rev)
                     return;
                 }
 
-                r->connect_host.len = n;
-                r->connect_host.data = host;
+                r->connect_host.len = host.len;
+                r->connect_host.data = host.data;
 
                 if (!r->connect_port_end) {
-                   ngx_log_error(NGX_LOG_INFO, c->log, 0,
+                    ngx_log_error(NGX_LOG_INFO, c->log, 0,
                                   "client sent no port in request line");
                     ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
                     return;
