@@ -26,6 +26,7 @@ typedef void (*ngx_http_proxy_connect_upstream_handler_pt)(
 typedef struct {
     ngx_flag_t                       accept_connect;
     ngx_array_t                     *allow_ports;
+    ngx_http_upstream_local_t       *local;
 
     ngx_msec_t                       read_timeout;
     ngx_msec_t                       send_timeout;
@@ -95,6 +96,13 @@ static ngx_command_t  ngx_http_proxy_connect_commands[] = {
       ngx_http_proxy_connect_allow,
       NGX_HTTP_LOC_CONF_OFFSET,
       0,
+      NULL },
+
+    { ngx_string("proxy_connect_bind"),
+      NGX_HTTP_SRV_CONF|NGX_CONF_TAKE1,
+      ngx_http_upstream_bind_set_slot,
+      NGX_HTTP_LOC_CONF_OFFSET,
+      offsetof(ngx_http_proxy_connect_loc_conf_t, local),
       NULL },
 
     { ngx_string("proxy_connect_read_timeout"),
@@ -742,6 +750,51 @@ ngx_http_proxy_connect_upstream_handler(ngx_event_t *ev)
     ngx_http_run_posted_requests(c);
 }
 
+static ngx_addr_t *
+ngx_http_proxy_connect_get_local(ngx_http_request_t *r,
+    ngx_http_upstream_local_t *local)
+{
+    ngx_int_t    rc;
+    ngx_str_t    val;
+    ngx_addr_t  *addr;
+
+    if (local == NULL) {
+        return NULL;
+    }
+
+    if (local->value == NULL) {
+        return local->addr;
+    }
+
+    if (ngx_http_complex_value(r, local->value, &val) != NGX_OK) {
+        return NULL;
+    }
+
+    if (val.len == 0) {
+        return NULL;
+    }
+
+    addr = ngx_palloc(r->pool, sizeof(ngx_addr_t));
+    if (addr == NULL) {
+        return NULL;
+    }
+
+    rc = ngx_parse_addr(r->pool, addr, val.data, val.len);
+
+    switch (rc) {
+    case NGX_OK:
+        addr->name = val;
+        return addr;
+
+    case NGX_DECLINED:
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "invalid local address \"%V\"", &val);
+        /* fall through */
+
+    default:
+        return NULL;
+    }
+}
 
 static void
 ngx_http_proxy_connect_process_connect(ngx_http_request_t *r,
@@ -761,6 +814,7 @@ ngx_http_proxy_connect_process_connect(ngx_http_request_t *r,
     pc->sockaddr = ur->sockaddr;
     pc->socklen = ur->socklen;
     pc->name = &ur->host;
+    pc->local = ngx_http_proxy_connect_get_local(r, u->conf->local);
 
     pc->get = ngx_http_proxy_connect_get_peer;
 
@@ -1316,6 +1370,7 @@ ngx_http_proxy_connect_create_loc_conf(ngx_conf_t *cf)
 
     conf->accept_connect = NGX_CONF_UNSET;
     conf->allow_ports = NGX_CONF_UNSET_PTR;
+    conf->local = NGX_CONF_UNSET_PTR;
 
     conf->connect_timeout = NGX_CONF_UNSET_MSEC;
     conf->send_timeout = NGX_CONF_UNSET_MSEC;
@@ -1336,6 +1391,7 @@ ngx_http_proxy_connect_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(conf->accept_connect, prev->accept_connect, 0);
     ngx_conf_merge_ptr_value(conf->allow_ports, prev->allow_ports, NULL);
+    ngx_conf_merge_ptr_value(conf->local, prev->local, NULL);
 
     ngx_conf_merge_msec_value(conf->connect_timeout,
                               prev->connect_timeout, 60000);
